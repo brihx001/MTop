@@ -1,0 +1,39 @@
+#!/bin/bash
+# Construit MTop.app (bundle signe ad-hoc, sans sandbox : un moniteur systeme
+# doit lire et signaler les processus des autres applications).
+set -euo pipefail
+cd "$(dirname "$0")"
+
+CONFIG="${1:-debug}"
+APP="MTop.app"
+BIN=".build/${CONFIG}/MTop"
+
+# Toolchain sans Xcode selectionne (macOS 27 / Swift 6.4) : systeme de
+# compilation natif, et greffon des macros SwiftUI pris dans Xcode.app.
+BUILD_ARGS=()
+if swift build --build-system native --help >/dev/null 2>&1; then
+  BUILD_ARGS+=(--build-system native)
+fi
+
+MACRO_PLUGINS="/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib/swift/host/plugins"
+if [ -f "${MACRO_PLUGINS}/libSwiftUIMacros.dylib" ]; then
+  BUILD_ARGS+=(-Xswiftc -plugin-path -Xswiftc "${MACRO_PLUGINS}")
+elif ! [ -f "/Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/libSwiftUIMacros.dylib" ]; then
+  echo "ATTENTION : greffon de macros SwiftUI introuvable." >&2
+fi
+
+echo "==> swift build (${CONFIG})"
+swift build -c "${CONFIG}" "${BUILD_ARGS[@]}"
+
+echo "==> assemblage du bundle"
+rm -rf "${APP}"
+mkdir -p "${APP}/Contents/MacOS" "${APP}/Contents/Resources"
+cp "${BIN}" "${APP}/Contents/MacOS/MTop"
+cp Packaging/Info.plist "${APP}/Contents/Info.plist"
+[ -f Packaging/AppIcon.icns ] && cp Packaging/AppIcon.icns "${APP}/Contents/Resources/AppIcon.icns"
+printf 'APPL????' > "${APP}/Contents/PkgInfo"
+
+echo "==> signature ad-hoc"
+codesign --force --sign - --options runtime --timestamp=none "${APP}"
+codesign --verify --verbose=2 "${APP}" 2>&1 | sed 's/^/    /'
+echo "==> OK : $(pwd)/${APP}"

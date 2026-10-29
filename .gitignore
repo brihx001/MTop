@@ -1,0 +1,4 @@
+.build/
+MTop.app/
+.DS_Store
+Packaging/Icon/AppIcon.iconset/
