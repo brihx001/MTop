@@ -19,13 +19,13 @@ MACRO_PLUGINS="/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platf
 if [ -f "${MACRO_PLUGINS}/libSwiftUIMacros.dylib" ]; then
   BUILD_ARGS+=(-Xswiftc -plugin-path -Xswiftc "${MACRO_PLUGINS}")
 elif ! [ -f "/Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/libSwiftUIMacros.dylib" ]; then
-  echo "ATTENTION : greffon de macros SwiftUI introuvable." >&2
+  echo "WARNING: SwiftUI macro plugin not found." >&2
 fi
 
 echo "==> swift build (${CONFIG})"
 swift build -c "${CONFIG}" "${BUILD_ARGS[@]}"
 
-echo "==> assemblage du bundle"
+echo "==> assembling the bundle"
 rm -rf "${APP}"
 mkdir -p "${APP}/Contents/MacOS" "${APP}/Contents/Resources"
 cp "${BIN}" "${APP}/Contents/MacOS/MTop"
@@ -38,7 +38,7 @@ printf 'APPL????' > "${APP}/Contents/PkgInfo"
 BUILD_DATE="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 /usr/libexec/PlistBuddy -c "Add :MTopBuildDate string ${BUILD_DATE}" "${APP}/Contents/Info.plist"
 
-echo "==> signature ad-hoc"
+echo "==> ad-hoc signing"
 codesign --force --sign - --options runtime --timestamp=none "${APP}"
 codesign --verify --verbose=2 "${APP}" 2>&1 | sed 's/^/    /'
-echo "==> OK : $(pwd)/${APP}"
+echo "==> OK: $(pwd)/${APP}"

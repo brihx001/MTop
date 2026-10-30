@@ -1,44 +1,59 @@
 import AppKit
 import SwiftUI
 
+/// Formatage en anglais, quelle que soit la langue du Mac : les formateurs de
+/// Foundation suivent la langue du systeme (« Go », « 2j », virgule decimale).
 enum Format {
-    private static func formatter(_ style: ByteCountFormatter.CountStyle) -> ByteCountFormatter {
-        let formatter = ByteCountFormatter()
-        formatter.countStyle = style
-        // Sinon 0 s'affiche « Zero ko ».
-        formatter.allowsNonnumericFormatting = false
-        return formatter
-    }
-    private static let memoryFormatter = formatter(.memory)
-    private static let fileFormatter = formatter(.file)
-    private static let decimalFormatter = formatter(.decimal)
+    enum ByteStyle { case memory, file, decimal }
 
-    static func bytes(_ value: some BinaryInteger, style: ByteCountFormatter.CountStyle = .memory) -> String {
-        let formatter = switch style {
-        case .file: fileFormatter
-        case .decimal: decimalFormatter
-        default: memoryFormatter
+    private static let units = ["bytes", "KB", "MB", "GB", "TB", "PB"]
+
+    /// Comme ByteCountFormatter en anglais : « 812 KB », « 13.1 MB », « 2.94 GB ».
+    /// La memoire compte en puissances de 1024, les disques et debits en 1000.
+    static func bytes(_ value: some BinaryInteger, style: ByteStyle = .memory) -> String {
+        let base = style == .memory ? 1024.0 : 1000.0
+        var amount = Double(Int64(clamping: value))
+        var unit = 0
+        while abs(amount) >= base, unit < units.count - 1 {
+            amount /= base
+            unit += 1
         }
-        return formatter.string(fromByteCount: Int64(clamping: value))
+        switch unit {
+        case 0: return "\(Int(amount)) bytes"
+        case 1: return String(format: "%.0f %@", amount, units[unit])
+        case 2: return String(format: "%.1f %@", amount, units[unit])
+        default: return String(format: "%.2f %@", amount, units[unit])
+        }
     }
 
     static func rate(_ bytesPerSecond: Double) -> String {
-        decimalFormatter.string(fromByteCount: Int64(bytesPerSecond)) + "/s"
+        bytes(Int64(bytesPerSecond.isFinite ? bytesPerSecond : 0), style: .decimal) + "/s"
     }
 
     static func percent(_ fraction: Double) -> String {
-        String(format: "%.0f %%", fraction * 100)
+        String(format: "%.0f%%", fraction * 100)
     }
 
-    private static let durationFormatter: DateComponentsFormatter = {
-        let formatter = DateComponentsFormatter()
-        formatter.allowedUnits = [.day, .hour, .minute]
-        formatter.unitsStyle = .abbreviated
+    /// « 2d 19h 11m », sans les unites de tete nulles.
+    static func duration(since date: Date) -> String {
+        let minutes = max(Int(Date().timeIntervalSince(date)) / 60, 0)
+        let days = minutes / 1440, hours = minutes / 60 % 24, rest = minutes % 60
+        if days > 0 { return "\(days)d \(hours)h \(rest)m" }
+        if hours > 0 { return "\(hours)h \(rest)m" }
+        return "\(rest)m"
+    }
+
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US")
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
         return formatter
     }()
 
-    static func duration(since date: Date) -> String {
-        durationFormatter.string(from: date, to: Date()) ?? ""
+    /// « Oct 30, 2026 at 8:44 AM ».
+    static func dateTime(_ date: Date) -> String {
+        dateFormatter.string(from: date)
     }
 }
 

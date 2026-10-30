@@ -174,10 +174,10 @@ final class ProcessSampler {
 
     private static func stateName(_ stat: CChar) -> String {
         switch Int32(stat) {
-        case SIDL: return "Création"
-        case SRUN: return "Actif"
-        case SSLEEP: return "Veille"
-        case SSTOP: return "Suspendu"
+        case SIDL: return "Starting"
+        case SRUN: return "Running"
+        case SSLEEP: return "Sleeping"
+        case SSTOP: return "Stopped"
         case SZOMB: return "Zombie"
         default: return "?"
         }

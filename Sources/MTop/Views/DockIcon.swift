@@ -9,12 +9,12 @@ enum DockIconMode: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .application: "Icône de l'application"
-        case .cpu: "Utilisation du CPU"
-        case .gpu: "Utilisation du GPU"
-        case .memory: "Mémoire"
-        case .network: "Activité réseau"
-        case .disk: "Activité disque"
+        case .application: "Application Icon"
+        case .cpu: "CPU Usage"
+        case .gpu: "GPU Usage"
+        case .memory: "Memory"
+        case .network: "Network Activity"
+        case .disk: "Disk Activity"
         }
     }
 }
@@ -31,8 +31,6 @@ struct DockIconContent {
     }
 
     var graph: Graph
-    var caption: String
-    var captionColor: NSColor = .white
 }
 
 /// Met a jour l'icone du Dock. Elle reste animee fenetre masquee : c'est son
@@ -60,15 +58,8 @@ private enum DockColors {
     static let load = NSGradient(colors: [.systemGreen, .systemYellow, .systemOrange, .systemRed])!
     static let gpu = NSGradient(colors: [.systemIndigo, .systemPurple, .systemPink])!
     static let memory = NSGradient(colors: [.systemTeal, .systemBlue, .systemPurple])!
-
-    static func load(_ fraction: Double) -> NSColor {
-        switch fraction {
-        case ..<0.5: .systemGreen
-        case ..<0.75: .systemYellow
-        case ..<0.9: .systemOrange
-        default: .systemRed
-        }
-    }
+    static let pressureWarning = NSGradient(colors: [.systemYellow, .systemOrange])!
+    static let pressureCritical = NSGradient(colors: [.systemOrange, .systemRed])!
 }
 
 private final class DockIconView: NSView {
@@ -85,10 +76,9 @@ private final class DockIconView: NSView {
             .draw(in: tilePath, angle: -90)
         guard let content else { return }
 
-        let inset = side * 0.07
-        let captionHeight = side * 0.2
-        let graph = NSRect(x: tile.minX + inset, y: tile.minY + captionHeight + inset * 0.6,
-                           width: tile.width - inset * 2, height: tile.height - captionHeight - inset * 1.6)
+        // Pas de legende : a la taille du Dock, le texte serait illisible.
+        let inset = side * 0.08
+        let graph = tile.insetBy(dx: inset, dy: inset)
 
         NSGraphicsContext.saveGraphicsState()
         NSBezierPath(rect: graph).addClip()
@@ -99,17 +89,6 @@ private final class DockIconView: NSView {
             drawMirrored(up: up, down: down, upColor: upColor, downColor: downColor, in: graph)
         }
         NSGraphicsContext.restoreGraphicsState()
-
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.alignment = .center
-        let caption = NSAttributedString(string: content.caption, attributes: [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: side * 0.13, weight: .bold),
-            .foregroundColor: content.captionColor,
-            .paragraphStyle: paragraph,
-        ])
-        let height = caption.size().height
-        caption.draw(in: NSRect(x: tile.minX, y: tile.minY + (captionHeight + inset - height) / 2,
-                                width: tile.width, height: height))
     }
 
     private func drawBars(_ loads: [Double], in rect: NSRect) {
@@ -172,54 +151,28 @@ private final class DockIconView: NSView {
 
 extension DockIconContent {
     /// Construit l'icone a partir de la derniere mesure et des historiques.
-    static func make(_ mode: DockIconMode, snapshot: Snapshot, histories: SystemHistories,
-                     interface: NetworkInterfaceSample?) -> DockIconContent? {
+    static func make(_ mode: DockIconMode, snapshot: Snapshot, histories: SystemHistories) -> DockIconContent? {
         switch mode {
         case .application:
             return nil
         case .cpu:
-            let total = snapshot.cpu.total
-            return DockIconContent(graph: .bars(snapshot.cpu.cores), caption: "CPU " + Format.percent(total),
-                                   captionColor: DockColors.load(total))
+            return DockIconContent(graph: .bars(snapshot.cpu.cores))
         case .gpu:
-            guard let gpu = snapshot.gpu else {
-                return DockIconContent(graph: .history([], DockColors.gpu), caption: "GPU –")
-            }
-            return DockIconContent(graph: .history(histories.gpu.values, DockColors.gpu),
-                                   caption: "GPU " + Format.percent(gpu))
+            return DockIconContent(graph: .history(histories.gpu.values, DockColors.gpu))
         case .memory:
-            let memory = snapshot.memory
-            let used = memory.total > 0 ? Double(memory.used) / Double(memory.total) : 0
-            let color: NSColor = switch memory.pressureLevel {
-            case 4: .systemRed
-            case 2: .systemOrange
-            default: .white
+            // Sans legende, la pression memoire se lit a la couleur de la courbe.
+            let gradient: NSGradient = switch snapshot.memory.pressureLevel {
+            case 4: DockColors.pressureCritical
+            case 2: DockColors.pressureWarning
+            default: DockColors.memory
             }
-            return DockIconContent(graph: .history(histories.memory.values, DockColors.memory),
-                                   caption: "RAM " + Format.percent(used), captionColor: color)
+            return DockIconContent(graph: .history(histories.memory.values, gradient))
         case .network:
-            return DockIconContent(
-                graph: .mirrored(up: histories.receive.values, down: histories.send.values,
-                                 upColor: .systemBlue, downColor: .systemPurple),
-                caption: compactRate(max(interface?.receiveRate ?? 0, interface?.sendRate ?? 0)))
+            return DockIconContent(graph: .mirrored(up: histories.receive.values, down: histories.send.values,
+                                                    upColor: .systemBlue, downColor: .systemPurple))
         case .disk:
-            return DockIconContent(
-                graph: .mirrored(up: histories.read.values, down: histories.write.values,
-                                 upColor: .systemGreen, downColor: .systemRed),
-                caption: compactRate(snapshot.disk.readRate + snapshot.disk.writeRate))
+            return DockIconContent(graph: .mirrored(up: histories.read.values, down: histories.write.values,
+                                                    upColor: .systemGreen, downColor: .systemRed))
         }
     }
-
-    /// Debit court pour tenir sous l'icone : « 12 Mo/s » plutot que « 12,3 Mo/s ».
-    private static func compactRate(_ bytesPerSecond: Double) -> String {
-        rateFormatter.string(fromByteCount: Int64(bytesPerSecond)) + "/s"
-    }
-
-    private static let rateFormatter: ByteCountFormatter = {
-        let formatter = ByteCountFormatter()
-        formatter.countStyle = .decimal
-        formatter.allowsNonnumericFormatting = false
-        formatter.isAdaptive = false
-        return formatter
-    }()
 }

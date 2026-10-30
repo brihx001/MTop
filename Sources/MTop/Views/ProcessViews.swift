@@ -17,10 +17,10 @@ struct PendingSignal: Identifiable {
 
     var title: String {
         switch signal {
-        case SIGKILL: "Forcer à quitter"
-        case SIGSTOP: "Suspendre"
-        case SIGCONT: "Reprendre"
-        default: "Terminer"
+        case SIGKILL: "Force Quit"
+        case SIGSTOP: "Suspend"
+        case SIGCONT: "Resume"
+        default: "Quit"
         }
     }
 }
@@ -146,18 +146,18 @@ struct ProcessInspector: View {
                     if !process.restricted {
                         let history = monitor.processHistories[pid]
                         let cpu = history?.cpu.values ?? []
-                        GraphSection(title: "CPU", value: String(format: "%.1f %%", process.cpu)) {
+                        GraphSection(title: "CPU", value: String(format: "%.1f%%", process.cpu)) {
                             AreaGraph(values: cpu, capacity: 60, gradient: Palette.load,
                                       maximum: max(100, cpu.max() ?? 0))
                         }
-                        GraphSection(title: "Mémoire", value: Format.bytes(process.memory)) {
+                        GraphSection(title: "Memory", value: Format.bytes(process.memory)) {
                             AreaGraph(values: history?.memory.values ?? [], capacity: 60,
                                       gradient: Palette.memory, maximum: nil)
                         }
                     }
 
                     Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 6) {
-                        InfoRow("État", process.state)
+                        InfoRow("State", process.state)
                         InfoRow("Parent") {
                             if let parent = monitor.process(process.parentPID) {
                                 Button("\(parent.name) (\(String(parent.pid)))") { select(parent.pid) }
@@ -166,22 +166,22 @@ struct ProcessInspector: View {
                                 Text(String(process.parentPID))
                             }
                         }
-                        InfoRow("Lancé", process.startDate.formatted(date: .abbreviated, time: .shortened))
-                        InfoRow("Durée", Format.duration(since: process.startDate))
-                        InfoRow("Priorité (nice)", String(process.nice))
+                        InfoRow("Started", Format.dateTime(process.startDate))
+                        InfoRow("Running time", Format.duration(since: process.startDate))
+                        InfoRow("Priority (nice)", String(process.nice))
                         if !process.restricted {
                             InfoRow("Threads", String(process.threads))
-                            InfoRow("Lecture disque", Format.rate(process.readRate))
-                            InfoRow("Écriture disque", Format.rate(process.writeRate))
+                            InfoRow("Disk Reads", Format.rate(process.readRate))
+                            InfoRow("Disk Writes", Format.rate(process.writeRate))
                         }
                     }
                     .font(.callout)
 
                     if let path = process.path {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("Exécutable").font(.callout).foregroundStyle(.secondary)
+                            Text("Executable").font(.callout).foregroundStyle(.secondary)
                             Text(path).font(.caption).textSelection(.enabled)
-                            Button("Afficher dans le Finder") {
+                            Button("Show in Finder") {
                                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
                             }
                             .controlSize(.small)
@@ -190,18 +190,18 @@ struct ProcessInspector: View {
 
                     Divider()
                     HStack {
-                        Button("Terminer") { pendingSignal = monitor.request(SIGTERM, pids: [pid]) }
-                        Button("Forcer à quitter") { pendingSignal = monitor.request(SIGKILL, pids: [pid]) }
+                        Button("Quit") { pendingSignal = monitor.request(SIGTERM, pids: [pid]) }
+                        Button("Force Quit") { pendingSignal = monitor.request(SIGKILL, pids: [pid]) }
                     }
-                    Button(process.state == "Suspendu" ? "Reprendre" : "Suspendre") {
-                        pendingSignal = monitor.request(process.state == "Suspendu" ? SIGCONT : SIGSTOP, pids: [pid])
+                    Button(process.state == "Stopped" ? "Resume" : "Suspend") {
+                        pendingSignal = monitor.request(process.state == "Stopped" ? SIGCONT : SIGSTOP, pids: [pid])
                     }
                 }
                 .padding()
             }
         } else {
-            ContentUnavailableView("Aucun processus", systemImage: "list.bullet.rectangle",
-                                   description: Text("Sélectionnez un processus pour voir ses détails."))
+            ContentUnavailableView("No Process Selected", systemImage: "list.bullet.rectangle",
+                                   description: Text("Select a process to see its details."))
         }
     }
 }

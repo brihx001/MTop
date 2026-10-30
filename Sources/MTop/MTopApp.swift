@@ -18,23 +18,25 @@ struct MTopApp: App {
         .defaultSize(width: 1280, height: 900)
         .commands {
             CommandGroup(replacing: .appInfo) {
-                Button("À propos de MTop") { AboutPanel.show() }
+                Button("About MTop") { AboutPanel.show() }
             }
-            CommandMenu("Affichage") {
-                Toggle("Arborescence des processus", isOn: $treeMode)
+            // Dans le menu View standard de macOS, apres les commandes de la barre d'outils.
+            CommandGroup(after: .toolbar) {
+                Divider()
+                Toggle("Process Tree", isOn: $treeMode)
                     .keyboardShortcut("t", modifiers: [.command, .option])
                 Divider()
-                Button(monitor.isPaused ? "Reprendre les mesures" : "Suspendre les mesures") {
+                Button(monitor.isPaused ? "Resume Sampling" : "Pause Sampling") {
                     monitor.isPaused.toggle()
                 }
                 .keyboardShortcut("p", modifiers: [.command, .shift])
-                Picker("Intervalle", selection: $monitor.interval) {
+                Picker("Interval", selection: $monitor.interval) {
                     ForEach(SystemMonitor.intervals, id: \.self) { value in
                         Text(ContentView.intervalLabel(value)).tag(value)
                     }
                 }
                 Divider()
-                Picker("Icône du Dock", selection: $monitor.dockIconMode) {
+                Picker("Dock Icon", selection: $monitor.dockIconMode) {
                     ForEach(DockIconMode.allCases) { mode in
                         Text(mode.title).tag(mode)
                         if mode == .application { Divider() }
@@ -67,13 +69,10 @@ enum AboutPanel {
             return NSAttributedString(string: text, attributes: attributes)
         }
 
-        let credits = NSMutableAttributedString(string: "Par ", attributes: base)
+        let credits = NSMutableAttributedString(string: "By ", attributes: base)
         credits.append(link(author, authorURL))
         if let built = buildDate {
-            let formatter = DateFormatter()
-            formatter.dateStyle = .medium
-            formatter.timeStyle = .short
-            credits.append(NSAttributedString(string: "\nConstruit le \(formatter.string(from: built))",
+            credits.append(NSAttributedString(string: "\nBuilt \(Format.dateTime(built))",
                                               attributes: base))
         }
         credits.append(NSAttributedString(string: "\n", attributes: base))
@@ -122,7 +121,7 @@ struct ContentView: View {
                 $0.isVisible && $0.canBecomeMain && $0.occlusionState.contains(.visible)
             }
         }
-        .searchable(text: $searchText, placement: .toolbar, prompt: "Nom, PID, utilisateur")
+        .searchable(text: $searchText, placement: .toolbar, prompt: "Name, PID, user")
         .inspector(isPresented: $showInspector) {
             ProcessInspector(pid: selection.count == 1 ? selection.first : nil,
                              pendingSignal: $pendingSignal,
@@ -132,44 +131,44 @@ struct ContentView: View {
         .toolbar {
             ToolbarItemGroup {
                 Toggle(isOn: $treeMode) {
-                    Label("Arborescence", systemImage: "list.bullet.indent")
+                    Label("Tree", systemImage: "list.bullet.indent")
                 }
-                .help("Afficher les processus en arborescence (⌥⌘T)")
+                .help("Show processes as a tree (⌥⌘T)")
 
                 Toggle(isOn: $onlyMine) {
-                    Label("Mes processus", systemImage: "person")
+                    Label("My Processes", systemImage: "person")
                 }
-                .help("N'afficher que mes processus")
+                .help("Show only my processes")
 
                 Button {
                     pendingSignal = monitor.request(SIGTERM, pids: Array(selection))
                 } label: {
-                    Label("Terminer", systemImage: "xmark.octagon")
+                    Label("Quit", systemImage: "xmark.octagon")
                 }
-                .help("Terminer les processus sélectionnés")
+                .help("Quit the selected processes")
                 .disabled(selection.isEmpty)
 
-                Picker("Intervalle", selection: $monitor.interval) {
+                Picker("Interval", selection: $monitor.interval) {
                     ForEach(SystemMonitor.intervals, id: \.self) { value in
                         Text(Self.intervalLabel(value)).tag(value)
                     }
                 }
-                .help("Intervalle de mesure")
+                .help("Sampling interval")
 
                 Button {
                     monitor.isPaused.toggle()
                 } label: {
-                    Label(monitor.isPaused ? "Reprendre" : "Pause",
+                    Label(monitor.isPaused ? "Resume" : "Pause",
                           systemImage: monitor.isPaused ? "play.fill" : "pause.fill")
                 }
-                .help(monitor.isPaused ? "Reprendre les mesures" : "Suspendre les mesures")
+                .help(monitor.isPaused ? "Resume Sampling" : "Pause Sampling")
 
                 Button {
                     showInspector.toggle()
                 } label: {
-                    Label("Détails", systemImage: "sidebar.trailing")
+                    Label("Details", systemImage: "sidebar.trailing")
                 }
-                .help("Afficher les détails du processus")
+                .help("Show process details")
             }
         }
         .confirmationDialog(confirmationTitle, isPresented: Binding(
@@ -178,11 +177,11 @@ struct ContentView: View {
             Button(pending.title, role: pending.signal == SIGCONT ? nil : .destructive) {
                 errorMessage = monitor.send(pending)
             }
-            Button("Annuler", role: .cancel) {}
+            Button("Cancel", role: .cancel) {}
         } message: { pending in
             Text(pending.pids.compactMap { monitor.process($0)?.name }.joined(separator: ", "))
         }
-        .alert("Action impossible", isPresented: Binding(
+        .alert("Couldn't Send the Signal", isPresented: Binding(
             get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } }
         )) {
             Button("OK") {}
@@ -194,7 +193,7 @@ struct ContentView: View {
     private var confirmationTitle: String {
         guard let pending = pendingSignal else { return "" }
         let count = pending.pids.count
-        return count == 1 ? "\(pending.title) ce processus ?" : "\(pending.title) \(count) processus ?"
+        return count == 1 ? "\(pending.title) this process?" : "\(pending.title) \(count) processes?"
     }
 
 }
@@ -211,7 +210,7 @@ private struct WindowSubtitle: View {
     private var subtitle: String {
         guard let processes = monitor.snapshot?.processes else { return "" }
         let threads = processes.reduce(0) { $0 + Int($1.threads) }
-        let paused = monitor.isPaused ? "En pause · " : ""
-        return "\(paused)\(processes.count) processus · \(threads) threads"
+        let paused = monitor.isPaused ? "Paused · " : ""
+        return "\(paused)\(processes.count) processes · \(threads) threads"
     }
 }

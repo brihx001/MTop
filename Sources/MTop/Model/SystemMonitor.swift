@@ -207,8 +207,7 @@ final class SystemMonitor {
 
     private func updateDockIcon() {
         guard dockIconMode != .application, let latest else { return }
-        dockIcon.update(DockIconContent.make(dockIconMode, snapshot: latest, histories: working,
-                                             interface: activeInterface(in: latest)))
+        dockIcon.update(DockIconContent.make(dockIconMode, snapshot: latest, histories: working))
     }
 
     private func record(_ snapshot: Snapshot) {
@@ -278,17 +277,17 @@ final class SystemMonitor {
             // kill(0) viserait tout le groupe de processus de MTop, kill(-n) un
             // autre groupe : seuls les PID strictement positifs sont acceptes.
             guard pid > 0 else {
-                failures.append("\(name) (\(pid)) : ce processus ne peut pas recevoir de signal")
+                failures.append("\(name) (\(pid)): this process cannot receive signals")
                 continue
             }
             // Le processus a pu quitter depuis la demande, et son PID etre reattribue.
             guard let expected = pending.startTimes[pid],
                   ProcessSampler.startTime(of: pid) == expected else {
-                failures.append("\(name) (\(pid)) : le processus n'existe plus, aucun signal envoyé")
+                failures.append("\(name) (\(pid)): the process no longer exists, no signal was sent")
                 continue
             }
             if kill(pid, pending.signal) != 0 {
-                failures.append("\(name) (\(pid)) : \(String(cString: strerror(errno)))")
+                failures.append("\(name) (\(pid)): \(String(cString: strerror(errno)))")
             }
         }
         Task { await refresh() }

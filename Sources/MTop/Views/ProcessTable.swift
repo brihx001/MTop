@@ -7,14 +7,14 @@ enum ProcessColumn: String, CaseIterable {
 
     var title: String {
         switch self {
-        case .name: "Processus"
+        case .name: "Process"
         case .pid: "PID"
-        case .user: "Utilisateur"
+        case .user: "User"
         case .cpu: "CPU %"
-        case .memory: "Mémoire"
+        case .memory: "Memory"
         case .threads: "Threads"
-        case .disk: "E/S disque"
-        case .state: "État"
+        case .disk: "Disk I/O"
+        case .state: "State"
         }
     }
 
@@ -275,25 +275,25 @@ struct ProcessTable: NSViewRepresentable {
             let pids = targets.map(\.pid)
             let actions = parent.actions
 
-            menu.addItem(ClosureMenuItem("Terminer") { actions.signal(SIGTERM, pids) })
-            menu.addItem(ClosureMenuItem("Forcer à quitter") { actions.signal(SIGKILL, pids) })
+            menu.addItem(ClosureMenuItem("Quit") { actions.signal(SIGTERM, pids) })
+            menu.addItem(ClosureMenuItem("Force Quit") { actions.signal(SIGKILL, pids) })
             menu.addItem(.separator())
-            menu.addItem(ClosureMenuItem("Suspendre") { actions.signal(SIGSTOP, pids) })
-            menu.addItem(ClosureMenuItem("Reprendre") { actions.signal(SIGCONT, pids) })
+            menu.addItem(ClosureMenuItem("Suspend") { actions.signal(SIGSTOP, pids) })
+            menu.addItem(ClosureMenuItem("Resume") { actions.signal(SIGCONT, pids) })
             menu.addItem(.separator())
             let urls = targets.compactMap { $0.path.map(URL.init(fileURLWithPath:)) }
-            let reveal = ClosureMenuItem("Afficher dans le Finder") {
+            let reveal = ClosureMenuItem("Show in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting(urls)
             }
             reveal.isEnabled = !urls.isEmpty
             menu.addItem(reveal)
             if parent.treeMode {
                 menu.addItem(.separator())
-                menu.addItem(ClosureMenuItem("Tout développer", action: actions.expandAll))
-                menu.addItem(ClosureMenuItem("Tout réduire", action: actions.collapseAll))
+                menu.addItem(ClosureMenuItem("Expand All", action: actions.expandAll))
+                menu.addItem(ClosureMenuItem("Collapse All", action: actions.collapseAll))
             }
             menu.addItem(.separator())
-            menu.addItem(ClosureMenuItem("Copier le PID") {
+            menu.addItem(ClosureMenuItem("Copy PID") {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(pids.sorted().map(String.init).joined(separator: " "),
                                                forType: .string)
@@ -327,7 +327,7 @@ final class ClosureMenuItem: NSMenuItem {
         target = self
     }
 
-    required init(coder: NSCoder) { fatalError("init(coder:) non utilise") }
+    required init(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     @objc private func run() { handler() }
 }
@@ -349,11 +349,11 @@ private extension NSView {
 private enum CellStyle {
     static let digits = NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
     static let text = NSFont.systemFont(ofSize: NSFont.systemFontSize)
-    static let restrictedHelp = "Processus d'un autre utilisateur : mesure réservée à l'administrateur"
+    static let restrictedHelp = "Another user's process: only an administrator can read its usage"
     static let gear = NSImage(systemSymbolName: "gearshape", accessibilityDescription: nil)
-    static let chevronRight = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: "Déplier")?
+    static let chevronRight = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: "Expand")?
         .withSymbolConfiguration(.init(pointSize: 9, weight: .bold))
-    static let chevronDown = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: "Replier")?
+    static let chevronDown = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: "Collapse")?
         .withSymbolConfiguration(.init(pointSize: 9, weight: .bold))
 
     static func label(alignment: NSTextAlignment) -> NSTextField {
@@ -384,7 +384,7 @@ private final class NameCell: NSTableCellView {
         disclosure.isBordered = false
         disclosure.imagePosition = .imageOnly
         disclosure.contentTintColor = .secondaryLabelColor
-        disclosure.toolTip = "Option-clic : toute la descendance"
+        disclosure.toolTip = "Option-click: all descendants"
         icon.imageScaling = .scaleProportionallyUpOrDown
         label.font = CellStyle.text
         [disclosure, icon, label].forEach(addSubview)
@@ -392,7 +392,7 @@ private final class NameCell: NSTableCellView {
         textField = label
     }
 
-    required init?(coder: NSCoder) { fatalError("init(coder:) non utilise") }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     func configure(_ process: ProcessSample, treeMode: Bool, isCollapsed: Bool,
                    target: AnyObject, action: Selector, row: Int) {
@@ -441,7 +441,7 @@ private final class TextCell: NSTableCellView {
         textField = label
     }
 
-    required init?(coder: NSCoder) { fatalError("init(coder:) non utilise") }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     func configure(_ process: ProcessSample, column: ProcessColumn) {
         let font = column.isNumeric ? CellStyle.digits : CellStyle.text
@@ -487,7 +487,7 @@ private final class CPUCell: NSTableCellView {
         textField = label
     }
 
-    required init?(coder: NSCoder) { fatalError("init(coder:) non utilise") }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     func configure(_ process: ProcessSample) {
         meter.isHidden = process.restricted

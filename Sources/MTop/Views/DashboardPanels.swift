@@ -30,7 +30,7 @@ struct CPUPanel: View {
                     Text("\(HardwareSampler.performanceCores)P + \(HardwareSampler.efficiencyCores)E")
                 }
                 if let load = cpu?.loadAverage {
-                    Text(String(format: "Charge %.2f  %.2f  %.2f", load.0, load.1, load.2))
+                    Text(String(format: "Load %.2f  %.2f  %.2f", load.0, load.1, load.2))
                         .monospacedDigit()
                 }
                 if let boot = HardwareSampler.bootDate {
@@ -47,8 +47,8 @@ struct CPUPanel: View {
                             .monospacedDigit()
                             .foregroundStyle(Palette.load(cpu?.total ?? 0))
                         VStack(alignment: .leading, spacing: 0) {
-                            Text("Utilisateur \(Format.percent(cpu?.user ?? 0))")
-                            Text("Système \(Format.percent(cpu?.system ?? 0))")
+                            Text("User \(Format.percent(cpu?.user ?? 0))")
+                            Text("System \(Format.percent(cpu?.system ?? 0))")
                         }
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -117,7 +117,7 @@ private struct BatteryLabel: View {
                 : level > 25 ? "battery.50percent" : level > 10 ? "battery.25percent" : "battery.0percent"
             HStack(spacing: 4) {
                 Image(systemName: symbol)
-                Text("\(level) %").monospacedDigit()
+                Text("\(level)%").monospacedDigit()
                 if let minutes = battery.minutesRemaining {
                     Text(String(format: "%dh%02d", minutes / 60, minutes % 60)).monospacedDigit()
                 }
@@ -133,7 +133,7 @@ struct MemoryPanel: View {
 
     var body: some View {
         let memory = monitor.snapshot?.memory
-        Panel(title: "Mémoire", systemImage: "memorychip") {
+        Panel(title: "Memory", systemImage: "memorychip") {
             if let memory { PressureBadge(level: memory.pressureLevel) }
         } content: {
             if let memory {
@@ -141,16 +141,16 @@ struct MemoryPanel: View {
                     HStack(alignment: .firstTextBaseline) {
                         Text(Format.bytes(memory.used))
                             .font(.title2.weight(.semibold))
-                        Text("sur \(Format.bytes(memory.total))").foregroundStyle(.secondary)
+                        Text("of \(Format.bytes(memory.total))").foregroundStyle(.secondary)
                     }
                     AreaGraph(values: monitor.memoryHistory.values, capacity: SystemMonitor.historyLength,
                               gradient: Palette.memory)
                         .frame(minHeight: 24, maxHeight: 60)
-                    MemoryRow(label: "Applications", value: memory.app, total: memory.total, color: .blue)
-                    MemoryRow(label: "Câblée", value: memory.wired, total: memory.total, color: .orange)
-                    MemoryRow(label: "Compressée", value: memory.compressed, total: memory.total, color: .purple)
-                    MemoryRow(label: "En cache", value: memory.cached, total: memory.total, color: .teal)
-                    MemoryRow(label: "Libre", value: memory.free, total: memory.total, color: .green)
+                    MemoryRow(label: "App Memory", value: memory.app, total: memory.total, color: .blue)
+                    MemoryRow(label: "Wired", value: memory.wired, total: memory.total, color: .orange)
+                    MemoryRow(label: "Compressed", value: memory.compressed, total: memory.total, color: .purple)
+                    MemoryRow(label: "Cached", value: memory.cached, total: memory.total, color: .teal)
+                    MemoryRow(label: "Free", value: memory.free, total: memory.total, color: .green)
                     if memory.swapTotal > 0 {
                         MemoryRow(label: "Swap", value: memory.swapUsed, total: memory.swapTotal, color: .red)
                     }
@@ -183,9 +183,9 @@ private struct PressureBadge: View {
 
     var body: some View {
         let (text, color): (String, Color) = switch level {
-        case 4: ("Pression critique", .red)
-        case 2: ("Pression élevée", .orange)
-        default: ("Pression normale", .green)
+        case 4: ("Critical pressure", .red)
+        case 2: ("High pressure", .orange)
+        default: ("Normal pressure", .green)
         }
         Label(text, systemImage: "circle.fill")
             .labelStyle(PressureLabelStyle(color: color))
@@ -210,9 +210,9 @@ struct NetworkPanel: View {
     var body: some View {
         @Bindable var monitor = monitor
         let interface = monitor.activeInterface
-        Panel(title: "Réseau", systemImage: "network") {
+        Panel(title: "Network", systemImage: "network") {
             Picker("Interface", selection: $monitor.selectedInterface) {
-                Text("Automatique").tag(String?.none)
+                Text("Automatic").tag(String?.none)
                 Divider()
                 ForEach(monitor.snapshot?.interfaces ?? []) { interface in
                     Text(interface.name).tag(String?.some(interface.name))
@@ -224,14 +224,14 @@ struct NetworkPanel: View {
             .fixedSize()
         } content: {
             VStack(alignment: .leading, spacing: 6) {
-                RateHeader(symbol: "arrow.down", color: .blue, title: "Réception",
+                RateHeader(symbol: "arrow.down", color: .blue, title: "Receive",
                            rate: interface?.receiveRate ?? 0, peak: monitor.receiveHistory.peak,
                            total: interface?.totalReceived ?? 0)
                 AreaGraph(values: monitor.receiveHistory.values, capacity: SystemMonitor.historyLength,
                           gradient: Palette.download, maximum: nil)
                 AreaGraph(values: monitor.sendHistory.values, capacity: SystemMonitor.historyLength,
                           gradient: Palette.upload, maximum: nil, inverted: true)
-                RateHeader(symbol: "arrow.up", color: .purple, title: "Envoi",
+                RateHeader(symbol: "arrow.up", color: .purple, title: "Send",
                            rate: interface?.sendRate ?? 0, peak: monitor.sendHistory.peak,
                            total: interface?.totalSent ?? 0)
             }
@@ -268,12 +268,12 @@ struct DiskPanel: View {
 
     var body: some View {
         let disk = monitor.snapshot?.disk
-        Panel(title: "Disques", systemImage: "internaldrive") {
+        Panel(title: "Disks", systemImage: "internaldrive") {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 10) {
-                    IOGraph(symbol: "arrow.down.doc", title: "Lecture", rate: disk?.readRate ?? 0,
+                    IOGraph(symbol: "arrow.down.doc", title: "Read", rate: disk?.readRate ?? 0,
                             values: monitor.readHistory.values, gradient: Palette.read)
-                    IOGraph(symbol: "square.and.pencil", title: "Écriture", rate: disk?.writeRate ?? 0,
+                    IOGraph(symbol: "square.and.pencil", title: "Write", rate: disk?.writeRate ?? 0,
                             values: monitor.writeHistory.values, gradient: Palette.write)
                 }
                 .frame(minHeight: 50, maxHeight: 70)
@@ -321,7 +321,7 @@ private struct VolumeRow: View {
                     .foregroundStyle(.secondary)
                 Text(volume.name).lineLimit(1)
                 Spacer()
-                Text("\(Format.bytes(volume.available, style: .file)) disponibles")
+                Text("\(Format.bytes(volume.available, style: .file)) available")
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
             }
@@ -334,10 +334,10 @@ private struct VolumeRow: View {
 
 extension VolumeRow {
     fileprivate var details: String {
-        var lines = ["\(Format.bytes(volume.used, style: .file)) utilisés sur \(Format.bytes(volume.total, style: .file))",
-                     "\(Format.bytes(volume.free, style: .file)) libres"]
+        var lines = ["\(Format.bytes(volume.used, style: .file)) used of \(Format.bytes(volume.total, style: .file))",
+                     "\(Format.bytes(volume.free, style: .file)) free"]
         if volume.purgeable > 0 {
-            lines.append("\(Format.bytes(volume.purgeable, style: .file)) purgeables (libérés par macOS à la demande)")
+            lines.append("\(Format.bytes(volume.purgeable, style: .file)) purgeable (freed by macOS when needed)")
         }
         return lines.joined(separator: "\n")
     }
