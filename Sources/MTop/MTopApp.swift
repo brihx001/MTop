@@ -33,6 +33,13 @@ struct MTopApp: App {
                         Text(ContentView.intervalLabel(value)).tag(value)
                     }
                 }
+                Divider()
+                Picker("Icône du Dock", selection: $monitor.dockIconMode) {
+                    ForEach(DockIconMode.allCases) { mode in
+                        Text(mode.title).tag(mode)
+                        if mode == .application { Divider() }
+                    }
+                }
             }
         }
     }

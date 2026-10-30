@@ -103,6 +103,17 @@ final class SystemMonitor {
     }
     var isPaused = false
 
+    /// Icone du Dock animee ; mise a jour meme fenetre masquee.
+    var dockIconMode = DockIconMode(rawValue: UserDefaults.standard.string(forKey: "dockIcon") ?? "")
+        ?? .application {
+        didSet {
+            UserDefaults.standard.set(dockIconMode.rawValue, forKey: "dockIcon")
+            dockIcon.mode = dockIconMode
+            updateDockIcon()
+        }
+    }
+    @ObservationIgnored private let dockIcon = DockIconController()
+
     /// Derniere mesure publiee vers l'interface.
     private(set) var snapshot: Snapshot?
     private(set) var histories = SystemHistories()
@@ -147,6 +158,7 @@ final class SystemMonitor {
 
     func start() {
         guard loop == nil else { return }
+        dockIcon.mode = dockIconMode
         loop = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
@@ -190,6 +202,13 @@ final class SystemMonitor {
         primaryInterfaceName = Self.primaryInterface()
         if !isFirst { record(snapshot) }
         if isWindowVisible { publish() }
+        updateDockIcon()
+    }
+
+    private func updateDockIcon() {
+        guard dockIconMode != .application, let latest else { return }
+        dockIcon.update(DockIconContent.make(dockIconMode, snapshot: latest, histories: working,
+                                             interface: activeInterface(in: latest)))
     }
 
     private func record(_ snapshot: Snapshot) {

@@ -12,6 +12,8 @@ Moniteur système natif macOS inspiré de [btop](https://github.com/aristocratos
 - **Disques** : lecture et écriture en temps réel ; espace disponible par volume comme le compte le Finder, la part purgeable étant distinguée
 - **Processus** : table native triable, recherche, filtre « Mes processus », vue en arborescence (⌥⌘T) et inspecteur avec graphes CPU et mémoire du processus. Terminer, forcer à quitter, suspendre ou reprendre, après confirmation
 
+- **Icône du Dock animée**, comme le Moniteur d'activité : **Affichage > Icône du Dock** montre l'utilisation du CPU par cœur, du GPU, la mémoire, l'activité réseau ou disque, et continue de s'animer fenêtre masquée
+
 Intervalle de mesure de 0,5 à 5 s, pause avec ⇧⌘P. Quand la fenêtre est masquée ou recouverte, MTop continue de mesurer pour que les graphes restent complets, mais cesse de mettre à jour l'interface.
 
 Sans droits administrateur, macOS ne fournit ni le CPU ni la mémoire des processus des autres utilisateurs (root, démons système) : ils apparaissent avec un tiret.
