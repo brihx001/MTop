@@ -10,6 +10,10 @@ struct PendingSignal: Identifiable {
     let id = UUID()
     var signal: Int32
     var pids: [pid_t]
+    /// Date de lancement de chaque processus vise, relevee a la demande. Entre la
+    /// demande et la confirmation, un processus peut quitter et son PID etre
+    /// attribue a un autre : on verifie avant d'envoyer le signal.
+    var startTimes: [pid_t: Int]
 
     var title: String {
         switch signal {
@@ -29,7 +33,7 @@ struct ProcessTableView: View {
     var onlyMine: Bool
     var treeMode: Bool
 
-    @State private var sortOrder = [KeyPathComparator(\ProcessSample.cpu, order: .reverse)]
+    @State private var sort = ProcessSort()
     /// Processus replies dans l'arborescence (tout est deplie par defaut).
     @State private var collapsed = Set<pid_t>()
 
@@ -45,7 +49,7 @@ struct ProcessTableView: View {
 
     private var rows: [ProcessSample] {
         let processes = monitor.snapshot?.processes ?? []
-        return treeMode ? treeRows(processes) : processes.filter(matches).sorted(using: sortOrder)
+        return treeMode ? treeRows(processes) : processes.filter(matches).sorted(using: sort.comparators)
     }
 
     /// Aplatit l'arbre parent/enfant en parcours en profondeur. Les freres sont
@@ -75,7 +79,7 @@ struct ProcessTableView: View {
         var result: [ProcessSample] = []
         result.reserveCapacity(kept.count)
         func visit(_ nodes: [ProcessSample], depth: Int) {
-            for var node in nodes.filter({ kept.contains($0.pid) }).sorted(using: sortOrder) {
+            for var node in nodes.filter({ kept.contains($0.pid) }).sorted(using: sort.comparators) {
                 let descendants = (children[node.pid] ?? []).filter { kept.contains($0.pid) }
                 node.treeDepth = depth
                 node.hasChildren = !descendants.isEmpty
@@ -108,142 +112,13 @@ struct ProcessTableView: View {
     }
 
     var body: some View {
-        Table(rows, selection: $selection, sortOrder: $sortOrder) {
-            TableColumn("Processus", value: \.name) { process in
-                HStack(spacing: 6) {
-                    if treeMode {
-                        TreeDisclosure(process: process, isCollapsed: collapsed.contains(process.pid)) {
-                            toggle(process.pid, recursive: NSEvent.modifierFlags.contains(.option))
-                        }
-                    }
-                    ProcessIcon(path: process.path).frame(width: 16, height: 16)
-                    Text(process.name).lineLimit(1)
-                }
-                .help(process.path ?? process.name)
-            }
-            .width(min: 160, ideal: 240)
-
-            TableColumn("PID", value: \.pid) { process in
-                Text(String(process.pid)).monospacedDigit()
-            }
-            .width(min: 50, ideal: 60)
-
-            TableColumn("Utilisateur", value: \.user)
-                .width(min: 70, ideal: 100)
-
-            TableColumn("CPU %", value: \.cpu) { process in
-                if process.restricted {
-                    RestrictedValue()
-                } else {
-                    HStack(spacing: 6) {
-                        Meter(fraction: process.cpu / 100, color: Palette.load(process.cpu / 100))
-                            .frame(width: 34)
-                        Text(String(format: "%.1f", process.cpu))
-                            .monospacedDigit()
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-                    }
-                }
-            }
-            .width(min: 80, ideal: 100)
-
-            TableColumn("Mémoire", value: \.memory) { process in
-                if process.restricted { RestrictedValue() } else {
-                    Text(Format.bytes(process.memory))
-                        .monospacedDigit()
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                }
-            }
-            .width(min: 70, ideal: 90)
-
-            TableColumn("Threads", value: \.threads) { process in
-                if process.restricted { RestrictedValue() } else {
-                    Text(String(process.threads))
-                        .monospacedDigit()
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                }
-            }
-            .width(min: 50, ideal: 60)
-
-            TableColumn("E/S disque", value: \.diskRate) { process in
-                if process.restricted { RestrictedValue() } else {
-                    Text(process.diskRate > 0 ? Format.rate(process.diskRate) : "0")
-                        .monospacedDigit()
-                        .foregroundStyle(process.diskRate > 0 ? .primary : .secondary)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                }
-            }
-            .width(min: 70, ideal: 90)
-
-            TableColumn("État", value: \.state)
-                .width(min: 60, ideal: 70)
-        }
-        .contextMenu(forSelectionType: pid_t.self) { pids in
-            if !pids.isEmpty {
-                Button("Terminer") { pendingSignal = PendingSignal(signal: SIGTERM, pids: Array(pids)) }
-                Button("Forcer à quitter") { pendingSignal = PendingSignal(signal: SIGKILL, pids: Array(pids)) }
-                Divider()
-                Button("Suspendre") { pendingSignal = PendingSignal(signal: SIGSTOP, pids: Array(pids)) }
-                Button("Reprendre") { pendingSignal = PendingSignal(signal: SIGCONT, pids: Array(pids)) }
-                Divider()
-                let paths = pids.compactMap { monitor.process($0)?.path }
-                Button("Afficher dans le Finder") {
-                    NSWorkspace.shared.activateFileViewerSelecting(paths.map { URL(fileURLWithPath: $0) })
-                }
-                .disabled(paths.isEmpty)
-                if treeMode {
-                    Divider()
-                    Button("Tout développer") { collapsed.removeAll() }
-                    Button("Tout réduire") {
-                        collapsed = Set((monitor.snapshot?.processes ?? []).map(\.parentPID))
-                    }
-                }
-                Divider()
-                Button("Copier le PID") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(pids.map(String.init).sorted().joined(separator: " "),
-                                                   forType: .string)
-                }
-            }
-        }
-        .onDeleteCommand {
-            if !selection.isEmpty { pendingSignal = PendingSignal(signal: SIGTERM, pids: Array(selection)) }
-        }
-    }
-}
-
-/// Indentation et triangle de l'arborescence.
-private struct TreeDisclosure: View {
-    var process: ProcessSample
-    var isCollapsed: Bool
-    var toggle: () -> Void
-
-    var body: some View {
-        HStack(spacing: 0) {
-            Color.clear.frame(width: CGFloat(process.treeDepth) * 14)
-            if process.hasChildren {
-                Button(action: toggle) {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .bold))
-                        .rotationEffect(.degrees(isCollapsed ? 0 : 90))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 14, height: 14)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help("Option-clic : toute la descendance")
-            } else {
-                Color.clear.frame(width: 14)
-            }
-        }
-    }
-}
-
-private struct RestrictedValue: View {
-    var body: some View {
-        Text("–")
-            .foregroundStyle(.tertiary)
-            .frame(maxWidth: .infinity, alignment: .trailing)
-            .help("Processus d'un autre utilisateur : mesure réservée à l'administrateur")
+        ProcessTable(
+            rows: rows, selection: $selection, sort: $sort, treeMode: treeMode, collapsed: collapsed,
+            actions: ProcessTableActions(
+                toggle: { toggle($0, recursive: $1) },
+                signal: { pendingSignal = monitor.request($0, pids: $1) },
+                expandAll: { collapsed.removeAll() },
+                collapseAll: { collapsed = Set((monitor.snapshot?.processes ?? []).map(\.parentPID)) }))
     }
 }
 
@@ -269,13 +144,14 @@ struct ProcessInspector: View {
                     }
 
                     if !process.restricted {
-                        let cpu = monitor.processCPUHistory[pid]?.values ?? []
+                        let history = monitor.processHistories[pid]
+                        let cpu = history?.cpu.values ?? []
                         GraphSection(title: "CPU", value: String(format: "%.1f %%", process.cpu)) {
                             AreaGraph(values: cpu, capacity: 60, gradient: Palette.load,
                                       maximum: max(100, cpu.max() ?? 0))
                         }
                         GraphSection(title: "Mémoire", value: Format.bytes(process.memory)) {
-                            AreaGraph(values: monitor.processMemoryHistory[pid]?.values ?? [], capacity: 60,
+                            AreaGraph(values: history?.memory.values ?? [], capacity: 60,
                                       gradient: Palette.memory, maximum: nil)
                         }
                     }
@@ -314,12 +190,11 @@ struct ProcessInspector: View {
 
                     Divider()
                     HStack {
-                        Button("Terminer") { pendingSignal = PendingSignal(signal: SIGTERM, pids: [pid]) }
-                        Button("Forcer à quitter") { pendingSignal = PendingSignal(signal: SIGKILL, pids: [pid]) }
+                        Button("Terminer") { pendingSignal = monitor.request(SIGTERM, pids: [pid]) }
+                        Button("Forcer à quitter") { pendingSignal = monitor.request(SIGKILL, pids: [pid]) }
                     }
                     Button(process.state == "Suspendu" ? "Reprendre" : "Suspendre") {
-                        pendingSignal = PendingSignal(
-                            signal: process.state == "Suspendu" ? SIGCONT : SIGSTOP, pids: [pid])
+                        pendingSignal = monitor.request(process.state == "Suspendu" ? SIGCONT : SIGSTOP, pids: [pid])
                     }
                 }
                 .padding()

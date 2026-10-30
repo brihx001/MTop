@@ -33,6 +33,11 @@ cp Packaging/Info.plist "${APP}/Contents/Info.plist"
 [ -f Packaging/AppIcon.icns ] && cp Packaging/AppIcon.icns "${APP}/Contents/Resources/AppIcon.icns"
 printf 'APPL????' > "${APP}/Contents/PkgInfo"
 
+# Date de construction, lue par le panneau « A propos ». Posee sur le bundle et
+# non sur Packaging/Info.plist, pour que le fichier du depot ne change pas.
+BUILD_DATE="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+/usr/libexec/PlistBuddy -c "Add :MTopBuildDate string ${BUILD_DATE}" "${APP}/Contents/Info.plist"
+
 echo "==> signature ad-hoc"
 codesign --force --sign - --options runtime --timestamp=none "${APP}"
 codesign --verify --verbose=2 "${APP}" 2>&1 | sed 's/^/    /'

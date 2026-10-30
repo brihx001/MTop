@@ -30,11 +30,15 @@ enum Format {
         String(format: "%.0f %%", fraction * 100)
     }
 
-    static func duration(since date: Date) -> String {
+    private static let durationFormatter: DateComponentsFormatter = {
         let formatter = DateComponentsFormatter()
         formatter.allowedUnits = [.day, .hour, .minute]
         formatter.unitsStyle = .abbreviated
-        return formatter.string(from: date, to: Date()) ?? ""
+        return formatter
+    }()
+
+    static func duration(since date: Date) -> String {
+        durationFormatter.string(from: date, to: Date()) ?? ""
     }
 }
 
@@ -106,7 +110,6 @@ struct AreaGraph: View {
             context.opacity = 0.9
             context.stroke(line, with: .linearGradient(gradient, startPoint: from, endPoint: to), lineWidth: 1.2)
         }
-        .drawingGroup()
     }
 }
 
@@ -171,8 +174,28 @@ enum IconCache {
         guard let path, let range = path.range(of: ".app/") else { return nil }
         let bundle = String(path[..<range.lowerBound]) + ".app"
         if let cached = icons[bundle] { return cached }
-        let image = NSWorkspace.shared.icon(forFile: bundle)
+        let image = rasterized(NSWorkspace.shared.icon(forFile: bundle))
         icons[bundle] = image
+        return image
+    }
+
+    /// L'icone du Finder est rendue par IconServices a chaque affectation a une
+    /// vue, avec acces disque. La table en change a chaque tri : on la fige une
+    /// fois pour toutes en bitmap 16 pt (32 px pour les ecrans Retina).
+    private static func rasterized(_ icon: NSImage) -> NSImage {
+        let pixels = 32
+        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels,
+                                         bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                         colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
+              let context = NSGraphicsContext(bitmapImageRep: rep) else { return icon }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        // Le contexte d'un bitmap travaille en pixels.
+        icon.draw(in: NSRect(x: 0, y: 0, width: pixels, height: pixels))
+        rep.size = NSSize(width: 16, height: 16)
+        NSGraphicsContext.restoreGraphicsState()
+        let image = NSImage(size: rep.size)
+        image.addRepresentation(rep)
         return image
     }
 }

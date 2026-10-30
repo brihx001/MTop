@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 @main
@@ -16,6 +17,9 @@ struct MTopApp: App {
         }
         .defaultSize(width: 1280, height: 900)
         .commands {
+            CommandGroup(replacing: .appInfo) {
+                Button("À propos de MTop") { AboutPanel.show() }
+            }
             CommandMenu("Affichage") {
                 Toggle("Arborescence des processus", isOn: $treeMode)
                     .keyboardShortcut("t", modifiers: [.command, .option])
@@ -31,6 +35,50 @@ struct MTopApp: App {
                 }
             }
         }
+    }
+}
+
+/// Panneau « A propos » standard, complete par l'auteur, la date de
+/// construction (cle MTopBuildDate, inscrite par build.sh) et la page du projet.
+enum AboutPanel {
+    static let author = "brihx001"
+    static let authorURL = URL(string: "https://github.com/brihx001")!
+    static let projectURL = URL(string: "https://github.com/brihx001/MTop")!
+
+    static func show() {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        paragraph.paragraphSpacing = 4
+        let base: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 11),
+            .foregroundColor: NSColor.secondaryLabelColor,
+            .paragraphStyle: paragraph,
+        ]
+        func link(_ text: String, _ url: URL) -> NSAttributedString {
+            var attributes = base
+            attributes[.link] = url
+            return NSAttributedString(string: text, attributes: attributes)
+        }
+
+        let credits = NSMutableAttributedString(string: "Par ", attributes: base)
+        credits.append(link(author, authorURL))
+        if let built = buildDate {
+            let formatter = DateFormatter()
+            formatter.dateStyle = .medium
+            formatter.timeStyle = .short
+            credits.append(NSAttributedString(string: "\nConstruit le \(formatter.string(from: built))",
+                                              attributes: base))
+        }
+        credits.append(NSAttributedString(string: "\n", attributes: base))
+        credits.append(link(projectURL.absoluteString.replacingOccurrences(of: "https://", with: ""), projectURL))
+
+        NSApp.activate()
+        NSApp.orderFrontStandardAboutPanel(options: [.credits: credits])
+    }
+
+    private static var buildDate: Date? {
+        guard let raw = Bundle.main.object(forInfoDictionaryKey: "MTopBuildDate") as? String else { return nil }
+        return ISO8601DateFormatter().date(from: raw)
     }
 }
 
@@ -61,7 +109,12 @@ struct ContentView: View {
                              searchText: searchText, onlyMine: onlyMine, treeMode: treeMode)
                 .frame(minHeight: 180)
         }
-        .navigationSubtitle(subtitle)
+        .background(WindowSubtitle())
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didChangeOcclusionStateNotification)) { _ in
+            monitor.isWindowVisible = NSApp.windows.contains {
+                $0.isVisible && $0.canBecomeMain && $0.occlusionState.contains(.visible)
+            }
+        }
         .searchable(text: $searchText, placement: .toolbar, prompt: "Nom, PID, utilisateur")
         .inspector(isPresented: $showInspector) {
             ProcessInspector(pid: selection.count == 1 ? selection.first : nil,
@@ -82,7 +135,7 @@ struct ContentView: View {
                 .help("N'afficher que mes processus")
 
                 Button {
-                    pendingSignal = PendingSignal(signal: SIGTERM, pids: Array(selection))
+                    pendingSignal = monitor.request(SIGTERM, pids: Array(selection))
                 } label: {
                     Label("Terminer", systemImage: "xmark.octagon")
                 }
@@ -116,7 +169,7 @@ struct ContentView: View {
             get: { pendingSignal != nil }, set: { if !$0 { pendingSignal = nil } }
         ), presenting: pendingSignal) { pending in
             Button(pending.title, role: pending.signal == SIGCONT ? nil : .destructive) {
-                errorMessage = monitor.send(pending.signal, to: pending.pids)
+                errorMessage = monitor.send(pending)
             }
             Button("Annuler", role: .cancel) {}
         } message: { pending in
@@ -135,6 +188,17 @@ struct ContentView: View {
         guard let pending = pendingSignal else { return "" }
         let count = pending.pids.count
         return count == 1 ? "\(pending.title) ce processus ?" : "\(pending.title) \(count) processus ?"
+    }
+
+}
+
+/// Sous-titre de la fenetre. Isole dans sa propre vue : lu dans ContentView, il
+/// ferait reevaluer toute la fenetre, barre d'outils comprise, a chaque mesure.
+private struct WindowSubtitle: View {
+    @Environment(SystemMonitor.self) private var monitor
+
+    var body: some View {
+        Color.clear.navigationSubtitle(subtitle)
     }
 
     private var subtitle: String {

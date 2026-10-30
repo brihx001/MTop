@@ -30,26 +30,38 @@ struct ProcessSample: Identifiable {
 final class ProcessSampler {
     private struct Previous { var cpuNanoseconds: UInt64; var read: UInt64; var write: UInt64 }
     private struct Identity: Hashable { var pid: pid_t; var start: Int }
-    private struct Static { var name: String; var path: String? }
+    private struct Static { var name: String; var path: String?; var lastSeen: Int }
 
     private var previous: [pid_t: Previous] = [:]
     private var statics: [Identity: Static] = [:]
     private var userNames: [uid_t: String] = [:]
+    /// Tampon de kinfo_proc reutilise d'un tick a l'autre (~650 octets par processus).
+    private var buffer: [kinfo_proc] = []
+    private var tick = 0
+    private let euid = geteuid()
 
     func sample(elapsed: Double) -> [ProcessSample] {
-        let kinfos = Self.listProcesses()
+        tick &+= 1
+        let count = refreshProcessList()
         var current: [pid_t: Previous] = [:]
-        var liveIdentities = Set<Identity>()
+        current.reserveCapacity(previous.count)
         var result: [ProcessSample] = []
-        result.reserveCapacity(kinfos.count)
+        result.reserveCapacity(count)
 
-        for kinfo in kinfos {
+        for index in 0..<count {
+            let kinfo = buffer[index]
             let pid = kinfo.kp_proc.p_pid
             let startTime = kinfo.kp_proc.p_un.__p_starttime
             let identity = Identity(pid: pid, start: startTime.tv_sec)
-            liveIdentities.insert(identity)
-            let info = statics[identity] ?? makeStatic(pid: pid, kinfo: kinfo)
-            statics[identity] = info
+            let info: Static
+            if var cached = statics[identity] {
+                cached.lastSeen = tick
+                statics[identity] = cached
+                info = cached
+            } else {
+                info = makeStatic(pid: pid, kinfo: kinfo)
+                statics[identity] = info
+            }
 
             let uid = kinfo.kp_eproc.e_ucred.cr_uid
             var sample = ProcessSample(
@@ -59,13 +71,16 @@ final class ProcessSampler {
                 startDate: Date(timeIntervalSince1970: TimeInterval(startTime.tv_sec)),
                 readRate: 0, writeRate: 0, restricted: true)
 
-            var task = proc_taskallinfo()
-            let taskSize = Int32(MemoryLayout<proc_taskallinfo>.stride)
-            if proc_pidinfo(pid, PROC_PIDTASKALLINFO, 0, &task, taskSize) == taskSize {
+            // Sans privileges, le noyau refuse les compteurs des autres utilisateurs :
+            // inutile de faire l'appel pour les ~350 processus root.
+            var task = proc_taskinfo()
+            let taskSize = Int32(MemoryLayout<proc_taskinfo>.stride)
+            if euid == 0 || uid == euid,
+               proc_pidinfo(pid, PROC_PIDTASKINFO, 0, &task, taskSize) == taskSize {
                 sample.restricted = false
-                sample.threads = task.ptinfo.pti_threadnum
-                sample.memory = task.ptinfo.pti_resident_size
-                let cpuTime = machToNanoseconds(task.ptinfo.pti_total_user + task.ptinfo.pti_total_system)
+                sample.threads = task.pti_threadnum
+                sample.memory = task.pti_resident_size
+                let cpuTime = machToNanoseconds(task.pti_total_user + task.pti_total_system)
 
                 var usage = rusage_info_v4()
                 let usageOK = withUnsafeMutablePointer(to: &usage) {
@@ -80,7 +95,10 @@ final class ProcessSampler {
                                    write: usageOK ? usage.ri_diskio_byteswritten : 0)
                 if let before = previous[pid], elapsed > 0 {
                     if now.cpuNanoseconds >= before.cpuNanoseconds {
-                        sample.cpu = Double(now.cpuNanoseconds - before.cpuNanoseconds) / (elapsed * 1e9) * 100
+                        // Arrondi au dixieme affiche : les ecarts invisibles ne
+                        // doivent pas reordonner la table a chaque mesure.
+                        let raw = Double(now.cpuNanoseconds - before.cpuNanoseconds) / (elapsed * 1e9) * 100
+                        sample.cpu = (raw * 10).rounded() / 10
                     }
                     if now.read >= before.read { sample.readRate = Double(now.read - before.read) / elapsed }
                     if now.write >= before.write { sample.writeRate = Double(now.write - before.write) / elapsed }
@@ -91,7 +109,10 @@ final class ProcessSampler {
         }
 
         previous = current
-        statics = statics.filter { liveIdentities.contains($0.key) }
+        // Purge des processus disparus, seulement quand il y en a.
+        if statics.count > count {
+            statics = statics.filter { $0.value.lastSeen == tick }
+        }
         return result
     }
 
@@ -107,7 +128,7 @@ final class ProcessSampler {
             if !last.isEmpty { name = last }
         }
         if pid == 0 { name = "kernel_task" }
-        return Static(name: name, path: path)
+        return Static(name: name, path: path, lastSeen: tick)
     }
 
     private func userName(_ uid: uid_t) -> String {
@@ -120,16 +141,35 @@ final class ProcessSampler {
         return name
     }
 
-    private static func listProcesses() -> [kinfo_proc] {
+    /// Date de lancement (secondes) d'un processus, ou nil s'il n'existe plus.
+    static func startTime(of pid: pid_t) -> Int? {
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0, size > 0,
+              info.kp_proc.p_pid == pid else { return nil }
+        return info.kp_proc.p_un.__p_starttime.tv_sec
+    }
+
+    /// Remplit `buffer` avec la table des processus et renvoie leur nombre.
+    private func refreshProcessList() -> Int {
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0]
-        var size = 0
-        guard sysctl(&mib, 4, nil, &size, nil, 0) == 0 else { return [] }
-        // Marge : des processus peuvent naitre entre les deux appels.
-        var buffer = [kinfo_proc](repeating: kinfo_proc(),
-                                  count: size / MemoryLayout<kinfo_proc>.stride + 32)
-        size = buffer.count * MemoryLayout<kinfo_proc>.stride
-        guard sysctl(&mib, 4, &buffer, &size, nil, 0) == 0 else { return [] }
-        return Array(buffer.prefix(size / MemoryLayout<kinfo_proc>.stride))
+        let stride = MemoryLayout<kinfo_proc>.stride
+        // Des processus peuvent naitre entre la mesure de taille et la lecture :
+        // on reessaie avec un tampon plus grand si le noyau repond ENOMEM.
+        for _ in 0..<3 {
+            var size = 0
+            guard sysctl(&mib, 4, nil, &size, nil, 0) == 0 else { return 0 }
+            let needed = size / stride + 64
+            if buffer.count < needed {
+                buffer = [kinfo_proc](repeating: kinfo_proc(), count: needed)
+            }
+            size = buffer.count * stride
+            let status = buffer.withUnsafeMutableBytes { sysctl(&mib, 4, $0.baseAddress, &size, nil, 0) }
+            if status == 0 { return size / stride }
+            guard errno == ENOMEM else { return 0 }
+        }
+        return 0
     }
 
     private static func stateName(_ stat: CChar) -> String {
