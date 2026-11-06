@@ -188,6 +188,8 @@ struct ProcessInspector: View {
                         }
                     }
 
+                    ProcessLinks(name: process.path.map { ($0 as NSString).lastPathComponent } ?? process.name)
+
                     Divider()
                     HStack {
                         Button("Quit") { pendingSignal = monitor.request(SIGTERM, pids: [pid]) }
@@ -203,6 +205,56 @@ struct ProcessInspector: View {
             ContentUnavailableView("No Process Selected", systemImage: "list.bullet.rectangle",
                                    description: Text("Select a process to see its details."))
         }
+    }
+}
+
+/// Liens vers de la documentation sur le processus : la page de manuel livree
+/// avec macOS quand elle existe (beaucoup de demons en ont une), et une
+/// recherche web, faite sur le nom complet de l'executable (le nom du noyau est
+/// tronque a 16 caracteres).
+private struct ProcessLinks: View {
+    var name: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Learn More").font(.callout).foregroundStyle(.secondary)
+            if let manual = Self.manualPage(for: name) {
+                Link("Manual Page: \(name)(\(manual.section))", destination: manual.url)
+            }
+            if let search = Self.webSearch(for: name) {
+                Link("Search the Web for \u{201C}\(name)\u{201D}", destination: search)
+            }
+        }
+        .font(.callout)
+        .lineLimit(2)
+    }
+
+    /// DuckDuckGo : pas de compte ni de suivi, et le nom est cherche tel quel.
+    static func webSearch(for name: String) -> URL? {
+        guard var components = URLComponents(string: "https://duckduckgo.com/") else { return nil }
+        components.queryItems = [URLQueryItem(name: "q", value: "\"\(name)\" macOS process")]
+        // URLComponents laisse « + » tel quel, que le serveur lirait comme une espace.
+        let query = components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
+        components.percentEncodedQuery = query
+        return components.url
+    }
+
+    // Le corps est reevalue a chaque mesure : on ne touche le disque qu'une fois par nom.
+    @MainActor private static var manualCache: [String: (section: String, url: URL)?] = [:]
+
+    @MainActor static func manualPage(for name: String) -> (section: String, url: URL)? {
+        if let cached = manualCache[name] { return cached }
+        var found: (section: String, url: URL)?
+        if !name.contains("/"), !name.hasPrefix("."),
+           let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) {
+            for section in ["8", "1"]
+            where FileManager.default.fileExists(atPath: "/usr/share/man/man\(section)/\(name).\(section)") {
+                found = URL(string: "x-man-page://\(section)/\(encoded)").map { (section, $0) }
+                break
+            }
+        }
+        manualCache[name] = found
+        return found
     }
 }
 
